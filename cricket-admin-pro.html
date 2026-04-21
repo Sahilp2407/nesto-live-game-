@@ -650,8 +650,31 @@
         <!-- Overlay for FX -->
         <canvas id="fx-canvas"></canvas>
 
+        <!-- Login Screen -->
+        <div id="login-screen" class="screen active">
+            <div class="login-card glass">
+                <div style="text-align: center; margin-bottom: 32px;">
+                    <img src="nesto_original_logo.jpg" alt="Nesto Cricket" style="max-height: 120px; border-radius: 12px; mix-blend-mode: multiply; background: white; padding: 10px;">
+                    <h2 class="orb" style="margin-top: 16px; letter-spacing: 2px;">NESTO CRICKET LIVE</h2>
+                    <p style="font-size: 11px; color: var(--text-dim); text-transform: uppercase; margin-top: 4px;">S4 - SCORING CONSOLE</p>
+                </div>
+                <div class="input-group">
+                    <label>ACCESS EMAIL</label>
+                    <input type="email" id="login-email" placeholder="admin@nesto.cc" class="glass">
+                </div>
+                <div class="input-group">
+                    <label>SECURITY PASSWORD</label>
+                    <input type="password" id="login-password" placeholder="••••••••" class="glass">
+                </div>
+                <button class="login-btn orb" onclick="handleLogin()">ACCESS CONSOLE →</button>
+                <div style="margin-top: 24px; text-align: center; font-size: 10px; color: var(--text-dim);">
+                    SECURED BY ANTIGRAVITY AI ENGINE
+                </div>
+            </div>
+        </div>
+
         <!-- Team Selection Screen -->
-        <div id="select-screen" class="screen active">
+        <div id="select-screen" class="screen">
             <div style="text-align: center; margin-top: 20px;">
                 <div style="display: inline-block; background: rgba(255,255,255,0.9); padding: 10px; border-radius: 12px;">
                     <img src="nesto_original_logo.jpg" alt="Nesto Cricket" style="max-height: 100px; mix-blend-mode: multiply;">
@@ -1159,7 +1182,7 @@
 
         /* --- STATE MANAGEMENT --- */
         let matchState = {
-            phase: 'select',
+            phase: 'login',
             selectedTeams: [], // [idA, idB]
             format: 'T20',
             maxOvers: 20,
@@ -1401,6 +1424,7 @@
                         return;
                     }
                     updateTeamSelectionUI();
+                    saveState();
                 };
                 grid.appendChild(card);
             });
@@ -1484,7 +1508,7 @@
 
         const setTossDecision = (dec) => {
             matchState.toss.decision = dec;
-            const winner = matchState.toss.winner; // 'A' or 'B'
+            const winner = matchState.toss.winner; 
             
             if (winner === 'A') {
                 matchState.toss.battingTeam = dec === 'bat' ? matchState.selectedTeams[0] : matchState.selectedTeams[1];
@@ -1495,6 +1519,7 @@
 
             document.getElementById('btn-to-setup').style.display = 'inline-block';
             showToast(`${dec.toUpperCase()} selected!`, 'run');
+            saveState();
         };
 
         const setFormat = (f, overs) => {
@@ -1503,6 +1528,7 @@
             document.querySelectorAll('#format-options div').forEach(el => {
                 el.style.borderColor = el.innerText.includes(f) ? 'var(--accent-primary)' : 'var(--border-glass)';
             });
+            saveState();
         };
 
         const goToPlayerSetup = () => renderScreen('setup');
@@ -1931,11 +1957,18 @@
                 const result = await response.json();
                 if (result.success) {
                     matchState = result.state;
+                    // If a new batsman was selected, update they are batting
                     if (newBmId && matchState.innings[matchState.currentInningsIdx].totalWickets < 10) {
                         const nextInn = matchState.innings[matchState.currentInningsIdx];
                         nextInn.batsmen[newBmId].status = 'batting';
-                        if (currentOutPlayer === 'striker') nextInn.strikerId = newBmId;
-                        else nextInn.nonStrikerId = newBmId;
+                        // Handle strike rotation logic if specified
+                        if (currentOutPlayer === 'striker') {
+                             nextInn.strikerId = nextStrikeResult === 'new' ? newBmId : nextInn.nonStrikerId;
+                             if (nextStrikeResult === 'remaining') nextInn.nonStrikerId = newBmId;
+                        } else {
+                             nextInn.nonStrikerId = nextStrikeResult === 'new' ? newBmId : nextInn.strikerId;
+                             if (nextStrikeResult === 'remaining') nextInn.strikerId = newBmId;
+                        }
                         await saveState(); 
                     }
                     closeWicketModal();
@@ -1948,36 +1981,6 @@
             } catch (e) {
                 console.error("Wicket Sync Error", e);
             }
-        };
-
-            inn.fallOfWickets.push({
-                num: inn.totalWickets,
-                runs: inn.totalRuns,
-                over: inn.currentOver,
-                ball: inn.currentBall,
-                player: inn.batsmen[outId].name,
-                totalBalls: inn.totalBalls
-            });
-
-            if (inn.totalWickets < 10) {
-                inn.batsmen[newBmId].status = 'batting';
-                if (currentOutPlayer === 'striker') {
-                    inn.strikerId = nextStrikeResult === 'new' ? newBmId : inn.nonStrikerId;
-                    if (nextStrikeResult === 'remaining') inn.nonStrikerId = newBmId;
-                } else {
-                    inn.nonStrikerId = nextStrikeResult === 'new' ? newBmId : inn.strikerId;
-                    if (nextStrikeResult === 'remaining') inn.strikerId = newBmId;
-                }
-            }
-
-            closeWicketModal();
-            showToast(`💀 WICKET! - ${inn.batsmen[outId].name} OUT`, 'wicket');
-            triggerWicketFX();
-
-            if (inn.totalWickets >= 10) endInnings();
-            else checkOverEnd();
-            
-            updateMatchUI();
         };
 
         const triggerWicketFX = () => {

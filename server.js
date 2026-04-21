@@ -76,7 +76,13 @@ const loadState = () => {
 const saveState = () => {
     fs.writeFileSync(STATE_FILE, JSON.stringify(matchState, null, 2));
     io.emit('matchUpdate', matchState);
-    matchRef.set(matchState).catch(err => console.error("Firestore push error:", err));
+    
+    // Prune history for Firestore to avoid bloat/errors
+    const syncState = JSON.parse(JSON.stringify(matchState));
+    if (syncState.innings) {
+        syncState.innings.forEach(inn => delete inn.history);
+    }
+    matchRef.set(syncState).catch(err => console.error("Firestore push error:", err));
 };
 
 // Start initialization
@@ -189,19 +195,51 @@ app.post('/api/wicket', (req, res) => {
 
 app.post('/api/ball', (req, res) => {
     try {
+        const { type, runs, extraRuns, strikerId, bowlerId } = req.body;
         const inn = matchState.innings[matchState.currentInningsIdx];
         if (!inn) return res.status(400).json({ error: "No active innings" });
 
-        inn.totalBalls++;
-        inn.currentOver = Math.floor(inn.totalBalls / 6);
-        inn.currentBall = inn.totalBalls % 6;
+        const totalExtra = (parseInt(runs) || 0) + (parseInt(extraRuns) || 0);
 
-        if (inn.strikerId && inn.batsmen[inn.strikerId]) inn.batsmen[inn.strikerId].balls++;
-        if (inn.currentBowlerId && inn.bowlers[inn.currentBowlerId]) inn.bowlers[inn.currentBowlerId].balls++;
+        if (type === 'wide') {
+            inn.totalRuns += (totalExtra + 1);
+            inn.extras.wides += (totalExtra + 1);
+            inn.extras.total += (totalExtra + 1);
+            if (inn.bowlers[bowlerId || inn.currentBowlerId]) {
+                inn.bowlers[bowlerId || inn.currentBowlerId].runs += (totalExtra + 1);
+            }
+        } else if (type === 'noball') {
+            inn.totalRuns += (totalExtra + 1);
+            inn.extras.noBalls += (totalExtra + 1);
+            inn.extras.total += (totalExtra + 1);
+            inn.isFreehit = true;
+            if (inn.bowlers[bowlerId || inn.currentBowlerId]) {
+                inn.bowlers[bowlerId || inn.currentBowlerId].runs += (totalExtra + 1);
+            }
+            if (inn.batsmen[strikerId || inn.strikerId]) {
+                inn.batsmen[strikerId || inn.strikerId].runs += (parseInt(runs) || 0);
+                inn.batsmen[strikerId || inn.strikerId].balls++;
+            }
+        } else {
+            // Legal ball
+            inn.totalBalls++;
+            inn.currentOver = Math.floor(inn.totalBalls / 6);
+            inn.currentBall = inn.totalBalls % 6;
+            inn.totalRuns += (parseInt(runs) || 0);
+            if (inn.strikerId && inn.batsmen[inn.strikerId]) {
+                 inn.batsmen[inn.strikerId].runs += (parseInt(runs) || 0);
+                 inn.batsmen[inn.strikerId].balls++;
+            }
+            if (inn.currentBowlerId && inn.bowlers[inn.currentBowlerId]) {
+                 inn.bowlers[inn.currentBowlerId].runs += (parseInt(runs) || 0);
+                 inn.bowlers[inn.currentBowlerId].balls++;
+            }
+        }
 
         saveState();
         res.json({ success: true, state: matchState });
     } catch (e) {
+        console.error("Ball API Error:", e);
         res.status(500).json({ error: e.message });
     }
 });
