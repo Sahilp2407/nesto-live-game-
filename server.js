@@ -9,11 +9,13 @@ const ExcelJS = require('exceljs');
 const app = express();
 const server = http.createServer(app);
 const io = new Server(server, {
-    cors: { origin: "*", methods: ["GET", "POST"] }
+    cors: { origin: "*", methods: ["GET", "POST"] },
+    maxHttpBufferSize: 1e8 // 100 MB
 });
 
 app.use(cors());
-app.use(express.json()); // Essential for API calls
+app.use(express.json({ limit: '50mb' }));
+app.use(express.urlencoded({ limit: '50mb', extended: true }));
 app.use(express.static(path.join(__dirname)));
 
 const STATE_FILE = path.join(__dirname, 'match_state.json');
@@ -58,7 +60,26 @@ app.get('/api/match/live', (req, res) => {
 
 // Update entire state
 app.post('/api/match/update', (req, res) => {
-    matchState = { ...matchState, ...req.body };
+    let newState = req.body;
+    
+    // Safety: Prune history if it's taking too much space
+    if (newState.innings) {
+        newState.innings.forEach(inn => {
+            if (inn.history && inn.history.length > 30) {
+                inn.history = inn.history.slice(-30);
+            }
+            // Deep safety: Remove nested history if it exists
+            if (inn.history) {
+                inn.history = inn.history.map(snapshot => {
+                    const clean = { ...snapshot };
+                    delete clean.history;
+                    return clean;
+                });
+            }
+        });
+    }
+    
+    matchState = { ...matchState, ...newState };
     saveState();
     res.json({ success: true, state: matchState });
 });

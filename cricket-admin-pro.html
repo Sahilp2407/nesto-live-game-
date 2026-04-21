@@ -1215,14 +1215,25 @@
         const saveState = async () => {
             localStorage.setItem('cric_admin_state_v2', JSON.stringify(matchState));
             
-            // 1. INSTANT SOCKET UPDATE (Highest Priority)
-            socket.emit('admin-update', matchState);
+            // 1. CREATE CLEAN STATE FOR SYNC (Prune history to avoid 413 error)
+            const syncState = JSON.parse(JSON.stringify(matchState));
+            if (syncState.innings) {
+                syncState.innings.forEach(inn => {
+                    if (inn.history) {
+                        // Only sync last 5 history entries to keep payload small
+                        inn.history = inn.history.slice(-5);
+                    }
+                });
+            }
+
+            // 2. INSTANT SOCKET UPDATE
+            socket.emit('admin-update', syncState);
             
-            // 2. BACKGROUND PERSISTENCE (API)
+            // 3. BACKGROUND PERSISTENCE
             fetch('/api/match/update', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(matchState)
+                body: JSON.stringify(syncState)
             }).catch(e => console.warn("Background persistence delay", e));
         };
 
@@ -1653,8 +1664,10 @@
         const recordBall = (type, runs, extraRuns = 0) => {
             const inn = matchState.innings[matchState.currentInningsIdx];
             
-            // Save state for undo
-            inn.history.push(JSON.parse(JSON.stringify(inn)));
+            // Save state for undo (Exclude history itself to prevent exponential bloat)
+            const snapshot = JSON.parse(JSON.stringify(inn));
+            delete snapshot.history;
+            inn.history.push(snapshot);
             if (inn.history.length > 30) inn.history.shift();
 
             let ballDisplay = runs;
@@ -1788,8 +1801,10 @@
                 showToast("Nothing to undo", "wicket");
                 return;
             }
-            const prevState = inn.history.pop();
+            const currentHistory = inn.history;
+            const prevState = currentHistory.pop();
             matchState.innings[matchState.currentInningsIdx] = prevState;
+            matchState.innings[matchState.currentInningsIdx].history = currentHistory;
             updateMatchUI();
             showToast("↩ Last ball undone", "run");
         };
@@ -1881,7 +1896,10 @@
 
         const confirmWicket = () => {
             const inn = matchState.innings[matchState.currentInningsIdx];
-            inn.history.push(JSON.parse(JSON.stringify(inn)));
+            // Save state for undo (Exclude history itself to prevent exponential bloat)
+            const snapshot = JSON.parse(JSON.stringify(inn));
+            delete snapshot.history;
+            inn.history.push(snapshot);
 
             const outId = currentOutPlayer === 'striker' ? inn.strikerId : inn.nonStrikerId;
             const newBmId = document.getElementById('new-batsman-select').value;
