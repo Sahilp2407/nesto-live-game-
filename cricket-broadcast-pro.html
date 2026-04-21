@@ -626,7 +626,7 @@
             console.log('Connected to LIVE Match Feed');
         });
 
-        socket.on('match-update', (state) => {
+        socket.on('matchUpdate', (state) => {
             console.log('🎬 Broadcast Update:', state);
             const inn = state.innings[state.currentInningsIdx];
             if (!inn) return;

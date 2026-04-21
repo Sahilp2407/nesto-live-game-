@@ -1212,6 +1212,12 @@
             showToast('Live Sync Active', 'run', 2000);
         });
 
+        socket.on('matchUpdate', (state) => {
+            console.log('Sync from server received');
+            matchState = state;
+            updateMatchUI();
+        });
+
         const deepPruneState = (state) => {
             if (!state || !state.innings) return state;
             state.innings.forEach(inn => {
@@ -1239,13 +1245,11 @@
                 localStorage.setItem('cric_admin_state_v2', JSON.stringify(matchState));
             }
             
-            // 1. CREATE CLEAN STATE FOR SYNC (Sync only last 2 events to minimize payload)
+            // 1. CREATE CLEAN STATE FOR SYNC (Completely remove history for network transfer)
             const syncState = JSON.parse(JSON.stringify(matchState));
             if (syncState.innings) {
                 syncState.innings.forEach(inn => {
-                    if (inn.history) {
-                        inn.history = inn.history.slice(-2);
-                    }
+                    delete inn.history; // Server doesn't need undo history
                 });
             }
 
@@ -1323,13 +1327,24 @@
         /* --- LOGIN LOGIC --- */
         const handleLogin = () => {
             console.log('handleLogin triggered');
-            const email = document.getElementById('login-email').value;
-            const pass = document.getElementById('login-password').value;
+            const emailInput = document.getElementById('login-email');
+            const passInput = document.getElementById('login-password');
             const card = document.querySelector('.login-card');
 
+            if (!emailInput || !passInput) {
+                console.error('Login inputs not found in DOM');
+                renderScreen('select');
+                return;
+            }
+
+            const email = emailInput.value;
+            const pass = passInput.value;
+
             if (!email || !pass) {
-                card.classList.add('error-shake');
-                setTimeout(() => card.classList.remove('error-shake'), 400);
+                if (card) {
+                    card.classList.add('error-shake');
+                    setTimeout(() => card.classList.remove('error-shake'), 400);
+                }
                 showToast('Please fill all fields', 'wicket');
                 return;
             }
@@ -1687,90 +1702,48 @@
             saveState();
         };
 
-        const recordBall = (type, runs, extraRuns = 0) => {
+        const recordBall = async (type, runs = 0, extraRuns = 0) => {
             const inn = matchState.innings[matchState.currentInningsIdx];
             
-            // Save state for undo (Exclude history itself to prevent exponential bloat)
-            const snapshot = JSON.parse(JSON.stringify(inn));
-            delete snapshot.history;
-            inn.history.push(snapshot);
-            if (inn.history.length > 30) inn.history.shift();
+            // UI Feedback
+            if (runs === 4) { launchFourParticles(); showToast(`⚡ FOUR!`, 'run'); }
+            if (runs === 6) { launchSixFireworks(); showToast(`🔥 SIX!`, 'six'); }
 
-            let ballDisplay = runs;
-            let ballValid = true;
+            let endpoint = '/api/ball';
+            let payload = { type, runs, extraRuns, strikerId: inn.strikerId, bowlerId: inn.currentBowlerId };
 
             if (type === 'run') {
-                inn.totalRuns += runs;
-                inn.batsmen[inn.strikerId].runs += runs;
-                inn.batsmen[inn.strikerId].balls += 1;
-                inn.bowlers[inn.currentBowlerId].runs += runs;
-                inn.bowlers[inn.currentBowlerId].balls += 1;
-                inn.totalBalls += 1;
-                inn.currentBall += 1;
-
-                if (runs === 4) { 
-                    inn.batsmen[inn.strikerId].fours += 1; 
-                    launchFourParticles(); 
-                    showToast(`⚡ FOUR! - ${inn.batsmen[inn.strikerId].name}`, 'run'); 
-                    matchState.lastEvent = 'four';
-                    matchState.lastEventId++;
-                }
-                else if (runs === 6) { 
-                    inn.batsmen[inn.strikerId].sixes += 1; 
-                    launchSixFireworks(); 
-                    showToast(`🔥 SIX! - ${inn.batsmen[inn.strikerId].name}`, 'six'); 
-                    matchState.lastEvent = 'six';
-                    matchState.lastEventId++;
-                }
-                
-                if (runs % 2 !== 0) rotateStrike();
-            } else if (type === 'wide') {
-                inn.totalRuns += (1 + extraRuns);
-                inn.extras.wides += (1 + extraRuns);
-                inn.extras.total += (1 + extraRuns);
-                inn.bowlers[inn.currentBowlerId].runs += (1 + extraRuns);
-                ballValid = false;
-                ballDisplay = extraRuns > 0 ? `${extraRuns}Wd` : 'Wd';
-                showToast(`📢 Wide - +${1 + extraRuns} run`, 'wide');
-            } else if (type === 'noball') {
-                inn.totalRuns += (1 + runs);
-                inn.extras.noBalls += 1;
-                inn.extras.total += 1;
-                inn.batsmen[inn.strikerId].runs += runs;
-                inn.batsmen[inn.strikerId].balls += 1;
-                inn.bowlers[inn.currentBowlerId].runs += (1 + runs);
-                ballValid = false;
-                inn.isFreehit = true;
-                ballDisplay = runs > 0 ? `${runs}NB` : 'NB';
-                showToast(`📢 No Ball! FREE HIT!`, 'noball');
-                if (runs % 2 !== 0) rotateStrike();
-            } else if (type === 'bye' || type === 'legbye') {
-                inn.totalRuns += extraRuns;
-                inn.extras[type === 'bye' ? 'byes' : 'legByes'] += extraRuns;
-                inn.extras.total += extraRuns;
-                inn.batsmen[inn.strikerId].balls += 1;
-                inn.bowlers[inn.currentBowlerId].balls += 1;
-                inn.totalBalls += 1;
-                inn.currentBall += 1;
-                ballDisplay = extraRuns + (type === 'bye' ? 'B' : 'LB');
-                showToast(`📢 ${type.toUpperCase()} - ${extraRuns} runs`, 'run');
-                if (extraRuns % 2 !== 0) rotateStrike();
+                endpoint = '/api/run';
+                payload.isBoundary = (runs === 4 || runs === 6) ? runs : 0;
+            } else if (type === 'wicket') {
+                endpoint = '/api/wicket';
+                payload.playerOutId = inn.strikerId;
             }
 
-            if (type !== 'noball' && inn.isFreehit && ballValid) {
-                inn.isFreehit = false;
+            try {
+                const response = await fetch(endpoint, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                });
+                const result = await response.json();
+                if (result.success) {
+                    matchState = result.state;
+                    updateMatchUI();
+                    
+                    const scoreContainer = document.getElementById('score-display');
+                    if (scoreContainer) {
+                        scoreContainer.style.transform = 'scale(1.15)';
+                        setTimeout(() => scoreContainer.style.transform = 'scale(1)', 100);
+                    }
+                    
+                    checkOverEnd();
+                    checkTargetAchieved();
+                }
+            } catch (e) {
+                console.error("API Error:", e);
+                showToast("Sync Failed", "wicket");
             }
-
-            inn.currentOverBalls.push({ type: type, runs: runs, display: ballDisplay });
-
-            // Score Pulse
-            const scoreContainer = document.getElementById('score-display');
-            scoreContainer.style.transform = 'scale(1.15)';
-            setTimeout(() => scoreContainer.style.transform = 'scale(1)', 100);
-
-            checkOverEnd();
-            updateMatchUI();
-            checkTargetAchieved();
         };
 
         const rotateStrike = () => {
@@ -1920,31 +1893,42 @@
             document.getElementById('strike-remaing').style.borderColor = val === 'remaining' ? 'var(--accent-primary)' : 'var(--border-glass)';
         };
 
-        const confirmWicket = () => {
+        const confirmWicket = async () => {
             const inn = matchState.innings[matchState.currentInningsIdx];
-            // Save state for undo (Exclude history itself to prevent exponential bloat)
-            const snapshot = JSON.parse(JSON.stringify(inn));
-            delete snapshot.history;
-            inn.history.push(snapshot);
-
             const outId = currentOutPlayer === 'striker' ? inn.strikerId : inn.nonStrikerId;
-            const newBmId = document.getElementById('new-batsman-select').value;
-            
-            inn.totalWickets += 1;
-            matchState.lastEvent = 'wicket';
-            matchState.lastEventId++;
-            inn.batsmen[outId].status = 'out';
-            inn.batsmen[outId].dismissal = selectedDismissal;
-            
-            if (['Bowled', 'Caught', 'LBW', 'Stumped'].includes(selectedDismissal)) {
-                inn.bowlers[inn.currentBowlerId].wickets += 1;
-            }
+            const newBmId = document.getElementById('new-batsman-select') ? document.getElementById('new-batsman-select').value : null;
 
-            inn.totalBalls += 1;
-            inn.currentBall += 1;
-            inn.batsmen[inn.strikerId].balls += 1;
-            inn.bowlers[inn.currentBowlerId].balls += 1;
-            inn.currentOverBalls.push({ type: 'W', runs: 0, display: 'W' });
+            try {
+                const response = await fetch('/api/wicket', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ 
+                        playerOutId: outId, 
+                        type: selectedDismissal,
+                        bowlerId: inn.currentBowlerId 
+                    })
+                });
+                const result = await response.json();
+                if (result.success) {
+                    matchState = result.state;
+                    if (newBmId && matchState.innings[matchState.currentInningsIdx].totalWickets < 10) {
+                        const nextInn = matchState.innings[matchState.currentInningsIdx];
+                        nextInn.batsmen[newBmId].status = 'batting';
+                        if (currentOutPlayer === 'striker') nextInn.strikerId = newBmId;
+                        else nextInn.nonStrikerId = newBmId;
+                        await saveState(); 
+                    }
+                    closeWicketModal();
+                    updateMatchUI();
+                    launchWicketAnimation();
+                    showToast("OUT! Wicket Fallen!", "wicket");
+                    checkOverEnd();
+                    checkTargetAchieved();
+                }
+            } catch (e) {
+                console.error("Wicket Sync Error", e);
+            }
+        };
 
             inn.fallOfWickets.push({
                 num: inn.totalWickets,
@@ -2208,13 +2192,8 @@
         });
 
         document.addEventListener('DOMContentLoaded', () => {
-            const loginBtn = document.querySelector('.login-btn');
-            if (loginBtn) {
-                loginBtn.addEventListener('click', (e) => {
-                    console.log('Login button clicked via EventListener');
-                    handleLogin();
-                });
-            }
+            // Login button handled via inline onclick if needed, 
+            // but login screen is currently secondary to the game logic.
         });
 
         const shiftBatting = async () => {

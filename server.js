@@ -14,8 +14,8 @@ const io = new Server(server, {
 });
 
 app.use(cors());
-app.use(express.json({ limit: '50mb' }));
-app.use(express.urlencoded({ limit: '50mb', extended: true }));
+app.use(express.json({ limit: '10mb' }));
+app.use(express.urlencoded({ limit: '10mb', extended: true }));
 app.use(express.static(path.join(__dirname)));
 
 const STATE_FILE = path.join(__dirname, 'match_state.json');
@@ -35,12 +35,33 @@ let matchState = {
     lastEventId: 0
 };
 
-// Load state on startup
-if (fs.existsSync(STATE_FILE)) {
+const loadState = () => {
     try {
-        const data = fs.readFileSync(STATE_FILE, 'utf8');
-        matchState = JSON.parse(data);
-        console.log('Match state loaded from storage');
+        if (fs.existsSync(STATE_FILE)) {
+            const stats = fs.statSync(STATE_FILE);
+            const data = fs.readFileSync(STATE_FILE, 'utf8');
+            let potentialState = JSON.parse(data);
+            
+            // PERMANENT FIX: If file is larger than 0.5MB, kill the recursive history bloat
+            if (stats.size > 500000 && potentialState.innings) {
+                console.log("!!! BLOAT DETECTED (", (stats.size/1024).toFixed(2), "KB). Pruning History...");
+                potentialState.innings.forEach(inn => {
+                    if (inn.history) {
+                        // Keep only 1 non-recursive entry
+                        inn.history = inn.history.slice(-1).map(h => {
+                            const clean = {...h};
+                            delete clean.history;
+                            return clean;
+                        });
+                    }
+                });
+                matchState = potentialState;
+                saveState(); // Overwrite the bloated file immediately
+            } else {
+                matchState = potentialState;
+            }
+            console.log('Match state verified and loaded');
+        }
     } catch (e) {
         console.error('Error loading state:', e);
     }
@@ -48,8 +69,11 @@ if (fs.existsSync(STATE_FILE)) {
 
 const saveState = () => {
     fs.writeFileSync(STATE_FILE, JSON.stringify(matchState, null, 2));
-    io.emit('match-update', matchState);
+    io.emit('matchUpdate', matchState);
 };
+
+// Start initialization
+loadState();
 
 // --- API ROUTES ---
 
@@ -58,33 +82,122 @@ app.get('/api/match/live', (req, res) => {
     res.json(matchState);
 });
 
-// Update entire state
+// Update entire state (Legacy support, now auto-pruned)
 app.post('/api/match/update', (req, res) => {
     let newState = req.body;
-    
-    // Safety: Prune history if it's taking too much space
     if (newState.innings) {
         newState.innings.forEach(inn => {
-            if (inn.history && inn.history.length > 30) {
-                inn.history = inn.history.slice(-30);
-            }
-            // Deep safety: Remove nested history if it exists
             if (inn.history) {
-                inn.history = inn.history.map(snapshot => {
-                    const clean = { ...snapshot };
-                    delete clean.history;
-                    return clean;
-                });
+                inn.history = inn.history.slice(-5).map(h => { const c = {...h}; delete c.history; return c; });
             }
         });
     }
-    
     matchState = { ...matchState, ...newState };
     saveState();
     res.json({ success: true, state: matchState });
 });
 
-// Start Match API
+app.post('/api/run', (req, res) => {
+    try {
+        const { runs, isBoundary, strikerId, bowlerId } = req.body;
+        const inn = matchState.innings[matchState.currentInningsIdx];
+        if (!inn) return res.status(400).json({ error: "No active innings" });
+
+        // Update Total
+        inn.totalRuns += parseInt(runs) || 0;
+
+        // Update Batsman
+        const sId = strikerId || inn.strikerId;
+        if (sId && inn.batsmen[sId]) {
+            const b = inn.batsmen[sId];
+            b.runs += parseInt(runs) || 0;
+            b.balls++;
+            if (isBoundary === 4) b.fours++;
+            if (isBoundary === 6) b.sixes++;
+        }
+        
+        // Update Bowler
+        const bId = bowlerId || inn.currentBowlerId;
+        if (bId && inn.bowlers[bId]) {
+            const bowler = inn.bowlers[bId];
+            bowler.runs += parseInt(runs) || 0;
+            bowler.balls++;
+        }
+
+        // Tracking Over
+        inn.totalBalls++;
+        inn.currentOver = Math.floor(inn.totalBalls / 6);
+        inn.currentBall = inn.totalBalls % 6;
+
+        // Swap strike if odd runs
+        if (runs % 2 !== 0) {
+            const temp = inn.strikerId;
+            inn.strikerId = inn.nonStrikerId;
+            inn.nonStrikerId = temp;
+        }
+
+        matchState.lastEvent = (runs === 4) ? 'four' : (runs === 6 ? 'six' : 'run');
+        matchState.lastEventId++;
+        
+        saveState();
+        res.json({ success: true, state: matchState });
+    } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
+});
+
+app.post('/api/wicket', (req, res) => {
+    try {
+        const { playerOutId, type, bowlerId } = req.body;
+        const inn = matchState.innings[matchState.currentInningsIdx];
+        if (!inn) return res.status(400).json({ error: "No active innings" });
+
+        inn.totalWickets++;
+        inn.totalBalls++; // Wicket is a ball
+        inn.currentOver = Math.floor(inn.totalBalls / 6);
+        inn.currentBall = inn.totalBalls % 6;
+
+        if (playerOutId && inn.batsmen[playerOutId]) {
+            const p = inn.batsmen[playerOutId];
+            p.status = 'out';
+            p.dismissal = type || 'Wicket';
+            p.balls++;
+        }
+
+        const bId = bowlerId || inn.currentBowlerId;
+        if (bId && inn.bowlers[bId]) {
+            const bowler = inn.bowlers[bId];
+            bowler.wickets++;
+            bowler.balls++;
+        }
+
+        matchState.lastEvent = 'wicket';
+        matchState.lastEventId++;
+        saveState();
+        res.json({ success: true, state: matchState });
+    } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
+});
+
+app.post('/api/ball', (req, res) => {
+    try {
+        const inn = matchState.innings[matchState.currentInningsIdx];
+        if (!inn) return res.status(400).json({ error: "No active innings" });
+
+        inn.totalBalls++;
+        inn.currentOver = Math.floor(inn.totalBalls / 6);
+        inn.currentBall = inn.totalBalls % 6;
+
+        if (inn.strikerId && inn.batsmen[inn.strikerId]) inn.batsmen[inn.strikerId].balls++;
+        if (inn.currentBowlerId && inn.bowlers[inn.currentBowlerId]) inn.bowlers[inn.currentBowlerId].balls++;
+
+        saveState();
+        res.json({ success: true, state: matchState });
+    } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
+});
 app.post('/api/match/start', (req, res) => {
     matchState.status = 'live';
     matchState.phase = 'match';
@@ -204,7 +317,7 @@ app.post('/api/match/reset', (req, res) => {
 
 io.on('connection', (socket) => {
     console.log('Client connected:', socket.id);
-    socket.emit('match-update', matchState);
+    socket.emit('matchUpdate', matchState);
 
     socket.on('admin-update', (state) => {
         matchState = state;

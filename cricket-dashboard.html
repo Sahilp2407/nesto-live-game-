@@ -448,7 +448,7 @@
         const sync = () => fetch('/api/match/live').then(res => res.json()).then(handleStateUpdate);
         
         sync(); // Initial fetch
-        socket.on('match-update', handleStateUpdate);
+        socket.on('matchUpdate', handleStateUpdate);
         
         // Safety Polling (Every 5s in case socket missed the state change)
         setInterval(sync, 5000);
