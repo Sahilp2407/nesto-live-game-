@@ -12,6 +12,9 @@
     
     <!-- Animation Engine -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.4/gsap.min.js"></script>
+    <!-- Firebase SDKs -->
+    <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-firestore-compat.js"></script>
     <script src="/socket.io/socket.io.js"></script>
     
     <style>
@@ -616,17 +619,28 @@
         function flashStadium(bright, norm) {
             gsap.to(".bg-video", { filter: `brightness(${bright})`, duration: 0.1 });
             gsap.to(".bg-video", { filter: `brightness(${norm})`, duration: 0.8, delay: 0.1 });
-        }
+        }        /* --- FIREBASE SYNC --- */
+        const firebaseConfig = {
+            apiKey: "AIzaSyB6vcdBeao5TinoXaumw49ZNk38sj-gL6w",
+            authDomain: "nesto-cricket.firebaseapp.com",
+            databaseURL: "https://nesto-cricket-default-rtdb.firebaseio.com",
+            projectId: "nesto-cricket",
+            storageBucket: "nesto-cricket.firebasestorage.app",
+            messagingSenderId: "942124875188",
+            appId: "1:942124875188:web:91276dd24dc9e83393c6e1"
+        };
+        firebase.initializeApp(firebaseConfig);
+        const db = firebase.firestore();
 
-        /* --- ACT 6: LIVE SYNC (SOCKET.IO) --- */
-        const socket = io();
-        let lastHandledEventId = 0;
-
-        socket.on('connect', () => {
-            console.log('Connected to LIVE Match Feed');
+        db.collection('matches').doc('live_match').onSnapshot((doc) => {
+            if (doc.exists) {
+                console.log("🔥 Firestore Sync Engine Active");
+                const state = doc.data();
+                handleIncomingState(state);
+            }
         });
 
-        socket.on('matchUpdate', (state) => {
+        const handleIncomingState = (state) => {
             console.log('🎬 Broadcast Update:', state);
             const inn = state.innings[state.currentInningsIdx];
             if (!inn) return;
@@ -638,29 +652,23 @@
             matchState.balls = inn.currentBall;
             matchState.overBalls = inn.currentOverBalls;
 
-            // Map batsmen
+            // Map strikers
             if (inn.strikerId && inn.batsmen[inn.strikerId]) {
                 const s = inn.batsmen[inn.strikerId];
-                matchState.striker = {
-                    name: s.name,
-                    runs: s.runs,
-                    balls: s.balls,
-                    fours: s.fours,
-                    sixes: s.sixes
-                };
+                matchState.striker = { name: s.name, runs: s.runs, balls: s.balls, fours: s.fours, sixes: s.sixes };
             }
             if (inn.nonStrikerId && inn.batsmen[inn.nonStrikerId]) {
                 const ns = inn.batsmen[inn.nonStrikerId];
-                matchState.nonStriker = {
-                    name: ns.name,
-                    runs: ns.runs,
-                    balls: ns.balls
-                };
+                matchState.nonStriker = { name: ns.name, runs: ns.runs, balls: ns.balls };
+            }
+            if (inn.currentBowlerId && inn.bowlers[inn.currentBowlerId]) {
+                const b = inn.bowlers[inn.currentBowlerId];
+                matchState.bowler = { name: b.name, overs: `${Math.floor(b.balls/6)}.${b.balls%6}`, runs: b.runs, wickets: b.wickets };
             }
 
             // Map team name
-            const teamHeader = document.getElementById('tour-info').querySelector('.fest-label');
-            teamHeader.innerText = inn.battingTeam.toUpperCase();
+            const label = document.querySelector('.fest-label');
+            if (label) label.innerText = inn.battingTeam.toUpperCase();
 
             updateUI();
 
@@ -671,7 +679,17 @@
                 else if (state.lastEvent === 'six') triggerSix();
                 else if (state.lastEvent === 'wicket') triggerWicket();
             }
+        };
+
+        /* --- ACT 6: LIVE SYNC (SOCKET.IO) --- */
+        const socket = io();
+        let lastHandledEventId = 0;
+
+        socket.on('connect', () => {
+            console.log('Connected to LIVE Match Feed');
         });
+
+        socket.on('matchUpdate', handleIncomingState);
 
         function initCanvas() {
             canvas.width = window.innerWidth;

@@ -12,6 +12,9 @@
     
     <!-- GSAP for Smooth Animations -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.4/gsap.min.js"></script>
+    <!-- Firebase SDKs -->
+    <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-firestore-compat.js"></script>
     <script src="/socket.io/socket.io.js"></script>
 
     <style>
@@ -443,6 +446,27 @@
                 duration: 0.05, repeat: 10, yoyo: true 
             });
         }
+
+        /* --- FIREBASE SYNC --- */
+        const firebaseConfig = {
+            apiKey: "AIzaSyB6vcdBeao5TinoXaumw49ZNk38sj-gL6w",
+            authDomain: "nesto-cricket.firebaseapp.com",
+            databaseURL: "https://nesto-cricket-default-rtdb.firebaseio.com",
+            projectId: "nesto-cricket",
+            storageBucket: "nesto-cricket.firebasestorage.app",
+            messagingSenderId: "942124875188",
+            appId: "1:942124875188:web:91276dd24dc9e83393c6e1"
+        };
+        firebase.initializeApp(firebaseConfig);
+        const db = firebase.firestore();
+
+        // Real-time Cloud Sync
+        db.collection('matches').doc('live_match').onSnapshot((doc) => {
+            if (doc.exists) {
+                console.log("🔥 Firestore Update Received");
+                handleStateUpdate(doc.data());
+            }
+        });
 
         // Sync Channels
         const sync = () => fetch('/api/match/live').then(res => res.json()).then(handleStateUpdate);

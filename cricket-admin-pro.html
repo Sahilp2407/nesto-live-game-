@@ -3,6 +3,9 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <!-- Firebase SDKs -->
+    <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-firestore-compat.js"></script>
     <title>CricAdmin Pro | Live Scoring Console</title>
     <!-- Google Fonts -->
     <style>
@@ -1140,6 +1143,20 @@
             btn.appendChild(circle);
         };
 
+        /* --- FIREBASE INITIALIZATION --- */
+        const firebaseConfig = {
+            apiKey: "AIzaSyB6vcdBeao5TinoXaumw49ZNk38sj-gL6w",
+            authDomain: "nesto-cricket.firebaseapp.com",
+            databaseURL: "https://nesto-cricket-default-rtdb.firebaseio.com",
+            projectId: "nesto-cricket",
+            storageBucket: "nesto-cricket.firebasestorage.app",
+            messagingSenderId: "942124875188",
+            appId: "1:942124875188:web:91276dd24dc9e83393c6e1"
+        };
+        firebase.initializeApp(firebaseConfig);
+        const db = firebase.firestore();
+        const matchRef = db.collection('matches').doc('live_match');
+
         /* --- STATE MANAGEMENT --- */
         let matchState = {
             phase: 'select',
@@ -1256,7 +1273,10 @@
             // 2. INSTANT SOCKET UPDATE
             socket.emit('admin-update', syncState);
             
-            // 3. BACKGROUND PERSISTENCE
+            // 3. FIRESTORE PERSISTENCE
+            matchRef.set(syncState).catch(e => console.warn("Firestore sync fail", e));
+
+            // 4. BACKEND PERSISTENCE
             fetch('/api/match/update', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },

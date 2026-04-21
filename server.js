@@ -6,6 +6,9 @@ const cors = require('cors');
 const fs = require('fs');
 const ExcelJS = require('exceljs');
 
+const firebase = require('firebase/compat/app');
+require('firebase/compat/firestore');
+
 const app = express();
 const server = http.createServer(app);
 const io = new Server(server, {
@@ -35,41 +38,45 @@ let matchState = {
     lastEventId: 0
 };
 
+// --- FIREBASE SERVER INIT ---
+const firebaseConfig = {
+    apiKey: "AIzaSyB6vcdBeao5TinoXaumw49ZNk38sj-gL6w",
+    authDomain: "nesto-cricket.firebaseapp.com",
+    databaseURL: "https://nesto-cricket-default-rtdb.firebaseio.com",
+    projectId: "nesto-cricket",
+    storageBucket: "nesto-cricket.firebasestorage.app",
+    messagingSenderId: "942124875188",
+    appId: "1:942124875188:web:91276dd24dc9e83393c6e1"
+};
+firebase.initializeApp(firebaseConfig);
+const db = firebase.firestore();
+const matchRef = db.collection('matches').doc('live_match');
+
 const loadState = () => {
+    // 1. Initial Load from Local File (Sync fallback)
     try {
         if (fs.existsSync(STATE_FILE)) {
-            const stats = fs.statSync(STATE_FILE);
             const data = fs.readFileSync(STATE_FILE, 'utf8');
-            let potentialState = JSON.parse(data);
-            
-            // PERMANENT FIX: If file is larger than 0.5MB, kill the recursive history bloat
-            if (stats.size > 500000 && potentialState.innings) {
-                console.log("!!! BLOAT DETECTED (", (stats.size/1024).toFixed(2), "KB). Pruning History...");
-                potentialState.innings.forEach(inn => {
-                    if (inn.history) {
-                        // Keep only 1 non-recursive entry
-                        inn.history = inn.history.slice(-1).map(h => {
-                            const clean = {...h};
-                            delete clean.history;
-                            return clean;
-                        });
-                    }
-                });
-                matchState = potentialState;
-                saveState(); // Overwrite the bloated file immediately
-            } else {
-                matchState = potentialState;
-            }
-            console.log('Match state verified and loaded');
+            matchState = JSON.parse(data);
+            console.log('Local state loaded');
         }
-    } catch (e) {
-        console.error('Error loading state:', e);
-    }
+    } catch (e) { console.error('Local load error:', e); }
+
+    // 2. Real-time Cloud Sync (Primary)
+    matchRef.onSnapshot((doc) => {
+        if (doc.exists) {
+            console.log("☁️  Cloud State Received");
+            matchState = doc.data();
+            // Don't call saveState() here to avoid loop, but emit to sockets
+            io.emit('matchUpdate', matchState);
+        }
+    }, err => console.error("Firestore listen error:", err));
 }
 
 const saveState = () => {
     fs.writeFileSync(STATE_FILE, JSON.stringify(matchState, null, 2));
     io.emit('matchUpdate', matchState);
+    matchRef.set(matchState).catch(err => console.error("Firestore push error:", err));
 };
 
 // Start initialization
