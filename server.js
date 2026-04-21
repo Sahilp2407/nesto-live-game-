@@ -196,10 +196,10 @@ io.on('connection', (socket) => {
     });
 });
 
-const PORT = 3000;
+const PORT = process.env.PORT || 3000;
 server.listen(PORT, () => {
     console.log(`\n🚀 NESTO LIVE ENGINE ACTIVE`);
-    console.log(`📡 Server: http://localhost:${PORT}`);
-    console.log(`🛠️  Admin:  http://localhost:${PORT}/cricket-admin-pro.html`);
+    console.log(`📡 Server Port: ${PORT}`);
+    console.log(`🛠️  Admin: http://localhost:${PORT}/cricket-admin-pro.html`);
     console.log(`📊 Viewer: http://localhost:${PORT}/cricket-dashboard.html\n`);
 });
