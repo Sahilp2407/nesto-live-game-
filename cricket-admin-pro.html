@@ -1212,16 +1212,39 @@
             showToast('Live Sync Active', 'run', 2000);
         });
 
+        const deepPruneState = (state) => {
+            if (!state || !state.innings) return state;
+            state.innings.forEach(inn => {
+                if (inn.history) {
+                    // Max 20 local undo steps to save browser memory
+                    if (inn.history.length > 20) inn.history = inn.history.slice(-20);
+                    // Ensure NO nested history exists in snapshots
+                    inn.history = inn.history.map(s => {
+                        if (s.history) delete s.history;
+                        return s;
+                    });
+                }
+            });
+            return state;
+        };
+
         const saveState = async () => {
-            localStorage.setItem('cric_admin_state_v2', JSON.stringify(matchState));
+            try {
+                // Prune local state before saving to localStorage
+                matchState = deepPruneState(matchState);
+                localStorage.setItem('cric_admin_state_v2', JSON.stringify(matchState));
+            } catch (e) {
+                console.warn("Storage Full, clearing history...", e);
+                matchState.innings.forEach(inn => inn.history = []);
+                localStorage.setItem('cric_admin_state_v2', JSON.stringify(matchState));
+            }
             
-            // 1. CREATE CLEAN STATE FOR SYNC (Prune history to avoid 413 error)
+            // 1. CREATE CLEAN STATE FOR SYNC (Sync only last 2 events to minimize payload)
             const syncState = JSON.parse(JSON.stringify(matchState));
             if (syncState.innings) {
                 syncState.innings.forEach(inn => {
                     if (inn.history) {
-                        // Only sync last 5 history entries to keep payload small
-                        inn.history = inn.history.slice(-5);
+                        inn.history = inn.history.slice(-2);
                     }
                 });
             }
@@ -1244,12 +1267,15 @@
                 
                 // If server has a live match, prefer it over local storage
                 if (serverState && serverState.status === 'live') {
-                    matchState = serverState;
-                    console.log("Loaded live state from server");
+                    matchState = deepPruneState(serverState);
+                    console.log("Loaded live state from server (and pruned)");
                 } else {
                     // Fallback to local storage
                     const saved = localStorage.getItem('cric_admin_state_v2');
-                    if (saved) matchState = JSON.parse(saved);
+                    if (saved) {
+                        const parsed = JSON.parse(saved);
+                        matchState = deepPruneState(parsed);
+                    }
                 }
 
                 renderScreen(matchState.phase);
