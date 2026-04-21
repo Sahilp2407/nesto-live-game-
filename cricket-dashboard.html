@@ -1,0 +1,462 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Nesto MSF S4 | User Broadcast Panel</title>
+    
+    <!-- Premium Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;700&family=Rajdhani:wght@400;600;700&family=Teko:wght@400;600&display=swap" rel="stylesheet">
+    
+    <!-- GSAP for Smooth Animations -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.4/gsap.min.js"></script>
+    <script src="/socket.io/socket.io.js"></script>
+
+    <style>
+        :root {
+            --navy-dark: #111827;
+            --blue-accent: #1e40af;
+            --white: #FFFFFF;
+            --grey-bg: #F3F4F6;
+            --text-dark: #000000; /* Pure black for text in white areas */
+            --text-muted: #4b5563; /* Darker muted text */
+            --red-live: #EF4444;
+        }
+
+        * { margin: 0; padding: 0; box-sizing: border-box; user-select: none; }
+
+        body {
+            font-family: 'DM Sans', sans-serif;
+            background: #000;
+            width: 100vw; height: 100vh;
+            overflow: hidden;
+            display: flex; align-items: center; justify-content: center;
+        }
+
+        /* Stadium Background Video */
+        .stadium-bg {
+            position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+            z-index: -1; overflow: hidden;
+        }
+        #bg-video {
+            width: 100%; height: 100%; object-fit: cover;
+            filter: brightness(0.6) contrast(1.1);
+        }
+        .stadium-bg::after {
+            content: ''; position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+            background: radial-gradient(circle at center, transparent 0%, rgba(0,0,0,0.4) 100%);
+        }
+
+        /* Main Container */
+        .broadcast-container {
+            width: 100%;
+            max-width: 1100px;
+            display: flex; align-items: center; justify-content: space-between;
+            padding: 40px;
+            gap: 40px;
+            position: relative;
+            z-index: 10;
+        }
+
+        /* Logo Area (Cinematic Overlay) */
+        .logo-area { 
+            flex: 0 0 320px; 
+            padding: 20px;
+            display: flex; align-items: center; justify-content: center;
+            position: relative;
+            transform: translateZ(0);
+        }
+        .logo-img { 
+            width: 100%; height: auto; 
+            filter: contrast(1.2) brightness(1.15); 
+            mix-blend-mode: multiply; 
+            transition: all 0.5s ease;
+            -webkit-filter: contrast(1.2) brightness(1.1);
+        }
+        /* Adding a subtle light glow behind the logo to ensure visibility on dark video */
+        .logo-area::before {
+            content: ''; position: absolute;
+            width: 100%; height: 100%;
+            background: radial-gradient(circle, rgba(255,255,255,0.3) 0%, transparent 80%);
+            z-index: -1;
+            filter: blur(20px);
+        }
+
+        /* Scorecard Section - Premium Glassmorphism */
+        .scorecard-main {
+            flex: 1;
+            background: rgba(255, 255, 255, 0.95);
+            border-radius: 24px;
+            overflow: hidden;
+            box-shadow: 
+                0 40px 100px rgba(0,0,0,0.6),
+                0 0 30px rgba(37, 99, 235, 0.2);
+            max-width: 680px;
+            border: 1px solid rgba(255,255,255,0.3);
+            /* Initial visibility handled by JS to prevent "stuck" invisible states */
+        }
+
+        /* Header (Navy) with Glow */
+        .card-header {
+            background: linear-gradient(90deg, var(--navy-dark) 0%, #1e293b 100%);
+            padding: 22px 32px;
+            display: flex; justify-content: space-between; align-items: center;
+            border-bottom: 4px solid var(--blue-accent);
+            box-shadow: inset 0 -2px 10px rgba(37, 99, 235, 0.3);
+        }
+        .team-title {
+            color: white; font-family: 'Rajdhani', sans-serif;
+            font-size: 24px; font-weight: 700; letter-spacing: 3px;
+            text-transform: uppercase;
+            text-shadow: 0 0 15px rgba(255,255,255,0.3);
+        }
+        .live-badge {
+            background: var(--red-live);
+            color: white; padding: 6px 16px; border-radius: 100px;
+            box-shadow: 0 0 15px rgba(239, 68, 68, 0.4);
+            font-family: 'Rajdhani', sans-serif; font-weight: 700; font-size: 14px;
+            display: flex; align-items: center; gap: 8px;
+            letter-spacing: 1px;
+        }
+        .live-dot { width: 8px; height: 8px; background: white; border-radius: 50%; opacity: 1; animation: pulse 1s infinite; }
+        @keyframes pulse { 0% { opacity: 0.2; } 50% { opacity: 1; } 100% { opacity: 0.2; } }
+
+        /* Score Display (White Area) */
+        .score-body { padding: 32px 36px 20px; display: flex; justify-content: space-between; align-items: flex-start; }
+        .score-main { 
+            font-family: 'Rajdhani', sans-serif; font-size: 96px; font-weight: 700; 
+            color: #000000 !important; line-height: 1; 
+            text-shadow: none; 
+        }
+        .score-slash { color: #000; font-size: 64px; font-weight: 400; margin: 0 -4px; }
+        .score-wickets { color: #000 !important; font-size: 80px; }
+
+        .stat-boxes { display: flex; flex-direction: column; gap: 8px; text-align: right; margin-top: 10px; }
+        .stat-box {
+            background: rgba(0,0,0,0.05); padding: 8px 16px; border-radius: 6px;
+            display: flex; gap: 12px; align-items: center; min-width: 140px; justify-content: flex-end;
+        }
+        .stat-label { font-family: 'Rajdhani', sans-serif; font-size: 11px; font-weight: 700; color: #333; letter-spacing: 1px; }
+        .stat-value { font-family: 'Rajdhani', sans-serif; font-size: 22px; font-weight: 700; color: #000 !important; }
+
+        /* Player Details Split */
+        .player-row-labels {
+            background: var(--navy-dark);
+            display: grid; grid-template-columns: 60% 40%;
+            padding: 6px 24px;
+        }
+        .row-label { color: white; font-family: 'Rajdhani', sans-serif; font-size: 10px; font-weight: 700; letter-spacing: 1px; text-transform: uppercase; }
+
+        .player-content { display: grid; grid-template-columns: 60% 40%; }
+        .batsmen-col { border-right: 1px solid var(--grey-bg); }
+        
+        .p-row { padding: 12px 24px; display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--grey-bg); }
+        .p-row.active { background: rgba(37, 99, 235, 0.05); }
+        .p-name { font-family: 'Teko', sans-serif; font-size: 22px; color: #000 !important; font-weight: 400; }
+        .p-name.striker::after { content: ' *'; color: #2563eb; }
+        .p-stat { font-family: 'Rajdhani', sans-serif; font-size: 24px; font-weight: 700; color: #000 !important; }
+        .p-balls { font-size: 16px; color: #444; font-weight: 500; }
+
+        .bowler-info { padding: 16px 24px; }
+        .bowler-name { font-family: 'Teko', sans-serif; font-size: 22px; color: #000 !important; margin-bottom: 6px; }
+        .bowler-stats-grid { display: grid; grid-template-columns: repeat(4, 1fr); text-align: center; }
+        .b-stat { display: flex; flex-direction: column; }
+        .b-label { font-family: 'Rajdhani', sans-serif; font-size: 10px; color: #333; font-weight: 700; }
+        .b-value { font-family: 'Rajdhani', sans-serif; font-size: 24px; font-weight: 700; color: #000 !important; }
+
+        /* Animations */
+        #app { visibility: visible; }
+    </style>
+</head>
+<body>
+
+    <div class="stadium-bg">
+        <video id="bg-video" autoplay muted loop playsinline>
+            <source src="Cinematic_Cricket_Stadium_Background_Video.mp4" type="video/mp4">
+        </video>
+    </div>
+
+    <!-- Connection Status Pill -->
+    <div id="conn-status" style="position: fixed; top: 20px; left: 20px; background: rgba(0,0,0,0.5); color: #fff; padding: 4px 12px; border-radius: 100px; font-size: 10px; font-family: 'Rajdhani', sans-serif; display: flex; align-items: center; gap: 6px; z-index: 100; opacity: 0.6; border: 1px solid rgba(255,255,255,0.1);">
+        <div id="conn-dot" style="width: 6px; height: 6px; background: #ef4444; border-radius: 50%;"></div>
+        <span id="conn-text">OFFLINE</span>
+        <span id="last-update" style="opacity: 0.5; margin-left: 10px;">Synced: --:--</span>
+    </div>
+
+    <!-- Pre-Match Waiting Screen -->
+    <div id="waiting-screen" style="position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; display: flex; flex-direction: column; align-items: center; justify-content: center; z-index: 50; transition: all 1s ease;">
+        <div class="logo-area" style="width: 400px; margin-bottom: 40px;">
+             <img src="nesto_original_logo.jpg" alt="Nesto Sports Fest" class="logo-img" style="width: 100%; border-radius: 20px; box-shadow: 0 0 50px rgba(255,255,255,0.2);">
+        </div>
+        <div style="color: white; font-family: 'Rajdhani', sans-serif; font-size: 32px; font-weight: 700; letter-spacing: 5px; text-shadow: 0 0 20px rgba(255,255,255,0.5); text-transform: uppercase;"> Match Will Start Soon </div>
+        <div id="wait-spinner" style="width: 40px; height: 40px; border: 3px solid rgba(255,255,255,0.1); border-top-color: #fff; border-radius: 50%; margin-top: 20px; animation: spin 1s linear infinite;"></div>
+    </div>
+    <style> @keyframes spin { to { transform: rotate(360deg); } } </style>
+
+    <div class="broadcast-container" id="app" style="display: none; opacity: 0;">
+        
+        <!-- Official Logo Area -->
+        <div class="logo-area" style="flex: 0 0 320px; display: block; mix-blend-mode: multiply; background: white; border-radius: 20px; padding: 20px; box-shadow: 0 10px 30px rgba(0,0,0,0.2);">
+            <img src="nesto_original_logo.jpg" alt="Nesto Sports Fest" class="logo-img" style="width: 100%;">
+        </div>
+
+        <!-- Scorecard Card -->
+        <div style="flex: 1; display: flex; justify-content: flex-end;">
+            <div class="scorecard-main">
+            
+            <!-- Navy Header -->
+            <div class="card-header">
+                <div class="team-title" id="team-name">NESTO STRIKERS</div>
+                <div class="live-badge">
+                    <div class="live-dot"></div>
+                    <span>● LIVE</span>
+                </div>
+            </div>
+
+            <!-- White Score Body -->
+            <div class="score-body">
+                <div class="score-main">
+                    <span id="score-runs">187</span>
+                    <span class="score-slash">/</span>
+                    <span class="score-wickets" id="score-wickets">4</span>
+                </div>
+                
+                <div class="stat-boxes">
+                    <div class="stat-box">
+                        <span class="stat-label">OVERS</span>
+                        <span class="stat-value" id="score-overs">18.4</span>
+                    </div>
+                    <div class="stat-box">
+                        <span class="stat-label">CRR</span>
+                        <span class="stat-value" id="score-crr">10.01</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Subheaders -->
+            <div class="player-row-labels">
+                <div class="row-label">BATSMEN</div>
+                <div class="row-label">BOWLER</div>
+            </div>
+
+        <!-- Content Area -->
+        <div class="player-content">
+            <!-- Batsmen Column -->
+            <div class="batsmen-col">
+                <div class="p-row active">
+                    <div class="p-name striker" id="striker-name">BATSMAN 1</div>
+                    <div class="p-stat">
+                        <span id="striker-runs">0</span>
+                        <span class="p-balls" id="striker-balls">(0)</span>
+                    </div>
+                </div>
+                <div class="p-row">
+                    <div class="p-name" id="nonstriker-name">BATSMAN 2</div>
+                    <div class="p-stat">
+                        <span id="nonstriker-runs">0</span>
+                        <span class="p-balls" id="nonstriker-balls">(0)</span>
+                    </div>
+                </div>
+                <!-- 2nd Innings Target Info -->
+                <div id="match-status-row" style="background: rgba(0,0,0,0.03); padding: 10px 24px; border-top: 1px solid var(--grey-bg); display: none;">
+                    <div id="match-status-text" style="font-family: 'Rajdhani', sans-serif; font-size: 14px; font-weight: 700; color: var(--blue-accent); text-transform: uppercase; letter-spacing: 1px;"></div>
+                </div>
+            </div>
+
+                <!-- Bowler Column -->
+                <div class="bowler-info">
+                    <div class="bowler-name" id="bowler-name">Mohammad Amir</div>
+                    <div class="bowler-stats-grid">
+                        <div class="b-stat">
+                            <span class="b-label">O</span>
+                            <span class="b-value" id="b-o">3.0</span>
+                        </div>
+                        <div class="b-stat">
+                            <span class="b-label">M</span>
+                            <span class="b-value" id="b-m">0</span>
+                        </div>
+                        <div class="b-stat">
+                            <span class="b-label">R</span>
+                            <span class="b-value" id="b-r">28</span>
+                        </div>
+                        <div class="b-stat">
+                            <span class="b-label">W</span>
+                            <span class="b-value" id="b-w">1</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+        </div>
+
+    </div>
+
+    <script>
+        const socket = io();
+        let lastHandledEventId = 0;
+
+        socket.on('connect', () => {
+            document.getElementById('conn-dot').style.background = '#22c55e';
+            document.getElementById('conn-text').innerText = 'LIVE SYNC ACTIVE';
+            gsap.to("#conn-status", { opacity: 0.8, duration: 0.5 });
+        });
+
+        socket.on('disconnect', () => {
+            document.getElementById('conn-dot').style.background = '#ef4444';
+            document.getElementById('conn-text').innerText = 'OFFLINE';
+            gsap.to("#conn-status", { opacity: 1, duration: 0.5 });
+        });
+
+        const handleStateUpdate = (state) => {
+            if (!state) return;
+            console.log('Syncing State...', state);
+
+            // Update timestamp
+            document.getElementById('last-update').innerText = `Synced: ${new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}`;
+
+            const app = document.getElementById('app');
+            const wait = document.getElementById('waiting-screen');
+
+            // 1. Visibility Selection
+            if (state.status === 'live') {
+                if (app.style.display === 'none' || app.style.display === '') {
+                    gsap.to(wait, { opacity: 0, duration: 0.8, onComplete: () => { wait.style.display = 'none'; } });
+                    app.style.display = 'flex';
+                    gsap.to(app, { opacity: 1, scale: 1, duration: 1.2, ease: "power4.out" });
+                }
+            } else {
+                wait.style.display = 'flex';
+                wait.style.opacity = '1';
+                app.style.display = 'none';
+                return;
+            }
+
+            // 2. Data Update
+            const currentInnings = state.innings[state.currentInningsIdx];
+            if (!currentInnings) return;
+
+            updateText('team-name', currentInnings.battingTeam.toUpperCase());
+            updateText('score-runs', currentInnings.totalRuns);
+            updateText('score-wickets', currentInnings.totalWickets);
+            updateText('score-overs', `${currentInnings.currentOver}.${currentInnings.currentBall}`);
+            
+            const crr = (currentInnings.totalBalls > 0) ? (currentInnings.totalRuns / (currentInnings.totalBalls / 6)).toFixed(2) : '0.00';
+            updateText('score-crr', crr);
+
+            // 2.5 Target & Support Logic (Innings 2 Only)
+            const targetRow = document.getElementById('match-status-row');
+            if (state.currentInningsIdx === 1) {
+                targetRow.style.display = 'block';
+                const firstInn = state.innings[0];
+                const targetScore = firstInn.totalRuns + 1;
+                const runsNeeded = targetScore - currentInnings.totalRuns;
+                const totalMatchBalls = state.matchOvers * 6;
+                const ballsLeft = totalMatchBalls - currentInnings.totalBalls;
+                const rrr = ballsLeft > 0 ? (runsNeeded / (ballsLeft / 6)).toFixed(2) : '0.00';
+
+                const statusText = `NEED ${runsNeeded} RUNS IN ${ballsLeft} BALLS | TARGET: ${targetScore} | RRR: ${rrr}`;
+                const statusEl = document.getElementById('match-status-text');
+                if (statusEl.innerText !== statusText) {
+                    statusEl.innerText = statusText;
+                    gsap.fromTo(statusEl, { x: -20, opacity: 0 }, { x: 0, opacity: 1, duration: 0.5 });
+                }
+            } else {
+                targetRow.style.display = 'none';
+            }
+
+            if (currentInnings.strikerId && currentInnings.batsmen[currentInnings.strikerId]) {
+                const s = currentInnings.batsmen[currentInnings.strikerId];
+                updateText('striker-name', s.name);
+                updateText('striker-runs', s.runs);
+                updateText('striker-balls', `(${s.balls})`);
+            }
+
+            if (currentInnings.nonStrikerId && currentInnings.batsmen[currentInnings.nonStrikerId]) {
+                const ns = currentInnings.batsmen[currentInnings.nonStrikerId];
+                updateText('nonstriker-name', ns.name);
+                updateText('nonstriker-runs', ns.runs);
+                updateText('nonstriker-balls', `(${ns.balls})`);
+            }
+
+            if (currentInnings.currentBowlerId && currentInnings.bowlers[currentInnings.currentBowlerId]) {
+                const b = currentInnings.bowlers[currentInnings.currentBowlerId];
+                updateText('bowler-name', b.name);
+                updateText('b-o', `${Math.floor(b.balls/6)}.${b.balls%6}`);
+                updateText('b-m', b.maidens || '0');
+                updateText('b-r', b.runs);
+                updateText('b-w', b.wickets);
+            }
+
+            // 3. Cinematic Triggers
+            if (state.lastEventId > lastHandledEventId) {
+                lastHandledEventId = state.lastEventId;
+                if (state.lastEvent === 'four') triggerCinematicEffect('⚡ FOUR! ⚡', '#facc15');
+                if (state.lastEvent === 'six') triggerCinematicEffect('🔥 SIX!! 🔥', '#f97316');
+                if (state.lastEvent === 'wicket') triggerCinematicEffect('💀 WICKET!! 💀', '#ef4444');
+            }
+        };
+
+        function updateText(id, val) {
+            const el = document.getElementById(id);
+            if (!el) return;
+            if (el.innerText !== String(val)) {
+                el.innerText = val;
+                // Animate scale only, keep color solid black for visibility
+                gsap.fromTo(el, 
+                    { scale: 1.3, color: "#000" }, 
+                    { scale: 1, color: "#000", duration: 0.5, ease: "back.out(2)" }
+                );
+            }
+        }
+
+        function triggerCinematicEffect(txt, color) {
+            // 1. Full Screen Flash
+            const flash = document.createElement('div');
+            flash.style.cssText = `position:fixed; top:0; left:0; width:100vw; height:100vh; background:${color}; opacity:0; z-index:999; pointer-events:none;`;
+            document.body.appendChild(flash);
+            gsap.to(flash, { opacity: 0.15, duration: 0.1, yoyo: true, repeat: 3, onComplete: () => flash.remove() });
+
+            // 2. Huge "Grand" Text
+            const div = document.createElement('div');
+            div.style.cssText = `
+                position:fixed; top:50%; left:50%; transform:translate(-50%,-50%); 
+                color:${color}; font-size:180px; font-weight:900; z-index:1000; 
+                font-family: 'Teko', sans-serif; text-transform: uppercase;
+                text-shadow: 0 0 40px rgba(0,0,0,0.8), 0 0 100px ${color}; 
+                pointer-events:none; white-space:nowrap; letter-spacing: 15px;
+            `;
+            div.innerText = txt;
+            document.body.appendChild(div);
+
+            // Grand Animation Path
+            const tl = gsap.timeline({ onComplete: () => div.remove() });
+            tl.from(div, { scale: 0.2, rotationX: 90, opacity: 0, duration: 0.5, ease: "back.out(1.7)" })
+              .to(div, { scale: 1.1, duration: 0.8, ease: "sine.inOut" })
+              .to(div, { scale: 1.5, opacity: 0, rotationX: -90, duration: 0.4, ease: "power2.in" });
+              
+            // 3. Scorecard Shake for Impact
+            gsap.to(".scorecard-main", { 
+                x: (Math.random() - 0.5) * 20, 
+                y: (Math.random() - 0.5) * 20, 
+                duration: 0.05, repeat: 10, yoyo: true 
+            });
+        }
+
+        // Sync Channels
+        const sync = () => fetch('/api/match/live').then(res => res.json()).then(handleStateUpdate);
+        
+        sync(); // Initial fetch
+        socket.on('match-update', handleStateUpdate);
+        
+        // Safety Polling (Every 5s in case socket missed the state change)
+        setInterval(sync, 5000);
+
+        window.onload = () => {
+            gsap.from("#bg-video", { opacity: 0, scale: 1.1, duration: 2 });
+            gsap.to(".logo-img", { scale: 1.05, duration: 3, repeat: -1, yoyo: true });
+        };
+    </script>
+</body>
+</html>

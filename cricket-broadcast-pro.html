@@ -1,0 +1,751 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Nesto MSF S4 | Cinematic Broadcast Pro</title>
+    
+    <!-- Premium Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=DM+Mono:wght@400;500;700&family=DM+Sans:wght@400;500;700&family=Rajdhani:wght@400;500;600;700&family=Teko:wght@400;500;600&display=swap" rel="stylesheet">
+    
+    <!-- Animation Engine -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.4/gsap.min.js"></script>
+    <script src="/socket.io/socket.io.js"></script>
+    
+    <style>
+        :root {
+            /* Glassmorphism & Cards */
+            --card-bg: rgba(8, 16, 32, 0.82);
+            --card-bg-light: rgba(12, 24, 48, 0.75);
+            --card-border: rgba(255, 255, 255, 0.12);
+            --card-border-bright: rgba(255, 255, 255, 0.20);
+
+            /* Brand Colors */
+            --navy: #0A1628;
+            --navy-mid: #122448;
+            --green-brand: #0A7C3E;
+            --green-bright: #10C865;
+            --ref-blue: #3B82F6; /* Reference Wickets Color */
+            
+            /* FX Colors */
+            --color-four: #F5A623;
+            --color-six: #A855F7;
+            --red-brand: #C0162C;
+            --red-bright: #FF2044;
+
+            /* Text */
+            --text-white: #FFFFFF;
+            --text-bright: rgba(255, 255, 255, 0.95);
+            --text-mid: rgba(255, 255, 255, 0.65);
+            --text-dim: rgba(255, 255, 255, 0.35);
+        }
+
+        * { margin: 0; padding: 0; box-sizing: border-box; user-select: none; }
+        body {
+            font-family: 'DM Sans', sans-serif;
+            background-color: var(--navy);
+            color: var(---text-white);
+            width: 100vw; height: 100vh;
+            overflow: hidden;
+            position: relative;
+        }
+
+        /* --- ACT 1: BACKGROUND & STADIUM --- */
+        .bg-layer {
+            position: fixed; top: 0; left: 0; width: 100%; height: 100%; z-index: -2;
+        }
+        .bg-video {
+            width: 100%; height: 100%; object-fit: cover; object-position: center 30%;
+            filter: brightness(0.6) saturate(1.1);
+            transition: filter 0.6s ease;
+        }
+        .vignette-overlay {
+            position: fixed; top: 0; left: 0; width: 100%; height: 100%; z-index: -1;
+            background: radial-gradient(ellipse at center, rgba(0,0,0,0.1) 0%, rgba(0,0,0,0.6) 60%, rgba(0,0,0,0.9) 100%);
+            pointer-events: none;
+        }
+        .scanline-texture {
+            position: fixed; top: 0; left: 0; width: 100%; height: 100%; z-index: -1;
+            background: repeating-linear-gradient(0deg, transparent 0px, transparent 2px, rgba(0,0,0,0.03) 2px, rgba(0,0,0,0.03) 3px);
+            pointer-events: none;
+        }
+
+        /* --- ACT 2: UI ARCHITECTURE --- */
+        #app {
+            display: grid;
+            grid-template-columns: 35% 65%;
+            width: 100%; height: 100%;
+            max-width: 1400px;
+            margin: 0 auto;
+            align-items: center;
+            padding: 0 40px;
+            position: relative;
+        }
+
+        /* Left: Logo Section */
+        .logo-panel {
+            padding-right: 40px;
+            display: flex; flex-direction: column; align-items: flex-start; gap: 12px;
+        }
+        .brand-logo {
+            max-width: 280px;
+            background: rgba(255, 255, 255, 0.9);
+            padding: 15px;
+            border-radius: 12px;
+            mix-blend-mode: multiply;
+            filter: drop-shadow(0 12px 24px rgba(0,0,0,0.5));
+            animation: breathe 6s ease-in-out infinite;
+        }
+        @keyframes breathe { 0%, 100% { transform: scale(1); } 50% { transform: scale(1.03); } }
+        
+        .tournament-info { color: white; opacity: 0; transform: translateY(20px); }
+        .fest-label { font-family: 'Rajdhani', sans-serif; font-size: 14px; letter-spacing: 4px; color: var(--text-dim); }
+        .season-label { font-family: 'Bebas Neue', sans-serif; font-size: 42px; color: var(--green-bright); line-height: 1; }
+        .stage-badge { font-family: 'Rajdhani', sans-serif; font-size: 12px; background: var(--ref-blue); padding: 4px 10px; border-radius: 4px; display: inline-block; margin-top: 8px; }
+
+        /* Right: Scoreboard Card */
+        .scoreboard-container { padding: 40px 0; }
+        .glass-card {
+            background: var(--card-bg);
+            backdrop-filter: blur(34px) saturate(1.6);
+            -webkit-backdrop-filter: blur(34px) saturate(1.6);
+            border: 1px solid var(--card-border);
+            border-radius: 24px;
+            box-shadow: 0 16px 64px rgba(0,0,0,0.6), inset 0 1px 0 rgba(255,255,255,0.12);
+            overflow: hidden;
+            width: 100%;
+            max-width: 720px;
+            position: relative;
+        }
+
+        /* Card Sections */
+        .card-header {
+            background: rgba(255,255,255,0.06);
+            padding: 16px 28px;
+            display: flex; justify-content: space-between; align-items: center;
+            border-bottom: 1px solid rgba(255,255,255,0.06);
+        }
+        .team-name { font-family: 'Rajdhani', sans-serif; font-size: 18px; letter-spacing: 3px; font-weight: 700; color: var(--text-bright); display: flex; align-items: center; gap: 10px; }
+        .team-dot { width: 8px; height: 8px; background: var(--green-brand); border-radius: 50%; }
+
+        .live-badge {
+            background: var(--red-brand);
+            padding: 6px 14px;
+            border-radius: 100px;
+            font-family: 'Rajdhani', sans-serif;
+            font-weight: 700; font-size: 13px;
+            display: flex; align-items: center; gap: 8px;
+            box-shadow: 0 0 20px rgba(185, 28, 28, 0.4);
+        }
+        .live-dot { width: 8px; height: 8px; background: white; border-radius: 50%; animation: pulse 1.5s infinite; }
+        @keyframes pulse { 0% { transform: scale(1); opacity: 1; box-shadow: 0 0 0 0 white; } 100% { transform: scale(1.5); opacity: 0; box-shadow: 0 0 0 10px rgba(255,255,255,0); } }
+
+        /* The Main Numbers */
+        .score-box {
+            padding: 32px 32px 24px 32px;
+            display: flex; justify-content: space-between; align-items: flex-end;
+        }
+        .score-main { display: flex; align-items: baseline; font-family: 'Bebas Neue', sans-serif; line-height: 0.9; }
+        .score-runs { font-size: 130px; letter-spacing: -3px; color: white; }
+        .score-slash { font-size: 80px; color: var(--text-dim); margin: 0 6px; }
+        .score-wickets { font-size: 100px; color: var(--ref-blue); letter-spacing: -2px; }
+
+        .score-stats { display: flex; flex-direction: column; gap: 10px; text-align: right; }
+        .stat-pill {
+            background: rgba(255,255,255,0.06);
+            border: 1px solid rgba(255,255,255,0.1);
+            border-radius: 12px;
+            padding: 6px 20px;
+            min-width: 150px;
+        }
+        .pill-label { font-family: 'Rajdhani', sans-serif; font-size: 10px; letter-spacing: 2px; color: var(--text-dim); display: block; }
+        .pill-value { font-family: 'Rajdhani', sans-serif; font-size: 26px; font-weight: 700; color: white; }
+
+        /* Player Split */
+        .player-section {
+            display: grid; grid-template-columns: 55% 45%;
+            border-top: 1px solid rgba(255,255,255,0.08);
+        }
+        .player-col { padding: 16px 0; position: relative; }
+        .player-col-title { font-family: 'Rajdhani', sans-serif; font-size: 10px; letter-spacing: 4px; color: var(--text-dim); padding: 0 28px 4px 28px; }
+        
+        .divider-v {
+            width: 1px;
+            background: linear-gradient(to bottom, transparent, rgba(255,255,255,0.15) 30%, rgba(255,255,255,0.15) 70%, transparent);
+        }
+
+        .player-row {
+            padding: 12px 28px;
+            display: flex; justify-content: space-between; align-items: center;
+            transition: background 0.3s ease;
+        }
+        .player-row.striker {
+            background: rgba(10, 124, 62, 0.12);
+            border-left: 3px solid var(--green-bright);
+        }
+        .p-name { font-family: 'Teko', sans-serif; font-size: 24px; color: var(--text-bright); font-weight: 600; }
+        .p-name-star { color: var(--green-bright); margin-left: 4px; font-size: 18px; }
+        .p-score { font-family: 'Rajdhani', sans-serif; font-size: 28px; font-weight: 700; color: white; }
+        .p-balls { font-size: 16px; color: var(--text-mid); }
+        .p-substat { font-family: 'DM Mono', monospace; font-size: 11px; color: var(--text-dim); padding: 0 28px; margin-top: -6px; }
+
+        /* Bowler Stats */
+        .bowler-grid {
+            display: grid; grid-template-columns: repeat(4, 1fr);
+            padding: 4px 28px 12px; text-align: left;
+        }
+        .b-stat { display: flex; flex-direction: column; }
+        .b-label { font-family: 'DM Mono', monospace; font-size: 11px; color: var(--text-dim); }
+        .b-value { font-family: 'DM Mono', monospace; font-size: 20px; font-weight: 700; color: var(--text-bright); }
+        .b-value.wicket { color: var(--red-bright); }
+
+        /* Over Tracker */
+        .over-tracker {
+            background: rgba(255,255,255,0.03);
+            border-top: 1px solid rgba(255,255,255,0.08);
+            padding: 16px 28px;
+            display: flex; justify-content: space-between; align-items: center;
+        }
+        .over-balls-row { display: flex; gap: 8px; }
+        .ball-pill {
+            width: 40px; height: 40px; border-radius: 50%;
+            display: flex; align-items: center; justify-content: center;
+            font-family: 'Rajdhani', sans-serif; font-weight: 800; font-size: 18px;
+            border: 1px solid rgba(255,255,255,0.1);
+            background: rgba(255,255,255,0.06);
+            color: var(--text-mid);
+            transition: all 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+        }
+        .ball-pill.four { background: rgba(245, 166, 35, 0.25); border-color: #F5A623; color: #F5A623; }
+        .ball-pill.six { background: rgba(168, 85, 247, 0.25); border-color: #A855F7; color: #A855F7; }
+        .ball-pill.wicket { background: rgba(239, 68, 68, 0.25); border-color: #EF4444; color: #EF4444; }
+        .ball-pill.run { background: rgba(16, 200, 101, 0.2); border-color: #10C865; color: #10C865; }
+        .ball-empty { border: 1.5px dashed rgba(255,255,255,0.1); background: transparent; }
+
+        /* Commentary */
+        .commentary-card {
+            margin-top: 12px;
+            background: var(--card-bg);
+            backdrop-filter: blur(20px);
+            border: 1px solid var(--card-border);
+            border-radius: 16px;
+            padding: 16px 28px;
+            height: 120px; overflow: hidden;
+            position: relative;
+        }
+        #commentary-feed { display: flex; flex-direction: column; gap: 8px; }
+        .comm-item {
+            display: flex; gap: 16px; align-items: flex-start;
+            animation: commIn 0.4s ease-out forwards;
+        }
+        @keyframes commIn { from { transform: translateX(20px); opacity: 0; } to { transform: translateX(0); opacity: 1; } }
+        .comm-ball { font-family: 'DM Mono', monospace; font-size: 12px; color: var(--text-dim); min-width: 40px; padding-top: 2px; }
+        .comm-text { font-family: 'DM Sans', sans-serif; font-size: 14px; color: var(--text-mid); line-height: 1.4; }
+        .comm-text b { color: white; font-weight: 700; }
+        .comm-text .highlight-4 { color: var(--color-four); font-weight: 800; }
+        .comm-text .highlight-6 { color: var(--color-six); font-weight: 800; }
+        .comm-text .highlight-W { color: var(--red-bright); font-weight: 800; }
+
+        /* --- ACT 3: SPECIAL OVERLAYS --- */
+        #canvas-overlay {
+            position: fixed; top: 0; left: 0; width: 100vw; height: 100vh;
+            z-index: 100; pointer-events: none;
+        }
+
+        #cinematic-fx {
+            position: fixed; top: 0; left: 0; width: 100vw; height: 100vh;
+            pointer-events: none; z-index: 200;
+            display: flex; align-items: center; justify-content: center;
+        }
+
+        .hero-text {
+            font-family: 'Bebas Neue', sans-serif;
+            font-size: 15vw;
+            color: white;
+            text-shadow: 0 0 50px rgba(0,0,0,0.8);
+            opacity: 0; transform: scale(0.5);
+        }
+        .hero-text.four { color: var(--color-four); text-shadow: 0 0 80px rgba(245,166,35,0.7); }
+        .hero-text.six { color: white; text-shadow: 0 0 100px var(--color-six); }
+
+        .out-card {
+            position: absolute; top: -300px;
+            background: linear-gradient(135deg, #2D0005 0%, #600010 100%);
+            width: min(600px, 90vw);
+            padding: 40px; border-radius: 24px;
+            text-align: center; color: white;
+            box-shadow: 0 30px 100px rgba(0,0,0,1), 0 0 60px rgba(192,22,44,0.5);
+            border: 2px solid rgba(255,255,255,0.2);
+            z-index: 301;
+        }
+        .out-title { font-family: 'Bebas Neue', sans-serif; font-size: 100px; line-height: 1; margin-bottom: 12px; }
+        .out-footer { display: flex; justify-content: center; gap: 32px; border-top: 1px solid rgba(255,255,255,0.1); margin-top: 24px; padding-top: 20px; }
+
+        /* Digit Flip Mechanism */
+        .digit-wrap { display: inline-block; position: relative; height: 1.1em; overflow: hidden; vertical-align: bottom; }
+        .digit-inner { display: flex; flex-direction: column; transition: transform 0.4s cubic-bezier(0.68, -0.55, 0.27, 1.55); }
+        .digit-val { height: 1.1em; display: flex; align-items: center; justify-content: center; }
+
+        /* Mobile Adjustments */
+        @media (max-width: 1024px) {
+            #app { grid-template-columns: 1fr; padding: 20px; text-align: center; align-items: start; }
+            .logo-panel { padding: 40px 0; align-items: center; }
+            .scoreboard-container { padding: 0; width: 100%; max-width: 100%; }
+            .score-runs { font-size: 90px; }
+            .player-section { grid-template-columns: 1fr; }
+            .divider-v { display: none; }
+        }
+    </style>
+</head>
+<body>
+
+    <!-- Stadium Layer -->
+    <div class="bg-layer">
+        <video id="stadium-video" class="bg-video" autoplay muted loop playsinline>
+            <source src="Cinematic_Cricket_Stadium_Background_Video.mp4" type="video/mp4">
+        </video>
+    </div>
+    <div class="vignette-overlay"></div>
+    <div class="scanline-texture"></div>
+
+    <canvas id="canvas-overlay"></canvas>
+
+    <div id="cinematic-fx">
+        <div id="hero-text" class="hero-text">FOUR!</div>
+        <div id="out-card" class="out-card">
+            <div class="out-title">OUT!</div>
+            <div id="out-p-name" class="p-name" style="font-size: 38px;">ROHIT SHARMA</div>
+            <div id="out-type" class="p-balls" style="font-size: 20px; color: var(--text-mid);">CAUGHT BY DEEP POINT</div>
+            <div class="out-footer">
+                <div class="b-stat">
+                    <span class="b-label" style="text-align: center;">FINAL SCORE</span>
+                    <span id="out-score" class="b-value">82 (54)</span>
+                </div>
+                <div class="b-stat">
+                    <span class="b-label" style="text-align: center;">SR</span>
+                    <span id="out-sr" class="b-value">151.8</span>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- The App -->
+    <div id="app">
+        
+        <div class="logo-panel">
+            <img src="nesto_original_logo.jpg" alt="Nesto Logo" class="brand-logo" id="logo-img">
+            <div class="tournament-info" id="tour-info">
+                <div class="fest-label">MEGA SPORTS FEST</div>
+                <div class="season-label" style="color: #10C865;">SEASON 4</div>
+                <div class="stage-badge">LIVE BROADCAST</div>
+            </div>
+        </div>
+
+        <div class="scoreboard-container">
+            <div class="glass-card" id="main-card">
+                
+                <div class="card-header">
+                    <div class="team-name">
+                        <div class="team-dot" id="team-dot"></div>
+                        <span id="team-name-text">NESTO STRIKERS</span>
+                    </div>
+                    <div class="live-badge">
+                        <div class="live-dot"></div>
+                        <span>● LIVE</span>
+                    </div>
+                </div>
+
+                <div class="score-box">
+                    <div class="score-main">
+                        <div class="digit-wrap"><div class="digit-inner" id="runs-digit">187</div></div>
+                        <span class="score-slash">/</span>
+                        <span class="score-wickets" id="wickets-text">4</span>
+                    </div>
+                    <div class="score-stats">
+                        <div class="stat-pill">
+                            <span class="pill-label">OVERS</span>
+                            <span class="pill-value" id="overs-text">18.4</span>
+                        </div>
+                        <div class="stat-pill">
+                            <span class="pill-label">CRR</span>
+                            <span class="pill-value" id="crr-text">10.01</span>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="player-section">
+                    <div class="player-col">
+                        <div class="player-col-title">BATSMEN</div>
+                        
+                        <div class="player-row striker" id="striker-row">
+                            <div class="p-name" id="striker-name">Rohit Sharma <span class="p-name-star"></span></div>
+                            <div class="p-score">
+                                <span id="striker-runs">82</span>
+                                <span class="p-balls" id="striker-balls">(54)</span>
+                            </div>
+                        </div>
+                        <div class="p-substat" id="striker-extras">4s: 8 | 6s: 3 | SR: 151.85</div>
+
+                        <div class="player-row" id="nonstriker-row" style="margin-top: 8px;">
+                            <div class="p-name" id="nonstriker-name" style="opacity: 0.8;">Virat Kohli</div>
+                            <div class="p-score">
+                                <span id="nonstriker-runs" style="opacity: 0.8;">43</span>
+                                <span class="p-balls" id="nonstriker-balls" style="opacity: 0.6;">(31)</span>
+                            </div>
+                        </div>
+                        <div class="p-substat" id="nonstriker-extras" style="opacity: 0.6;">4s: 4 | 6s: 1 | SR: 138.71</div>
+                    </div>
+
+                    <div class="divider-v"></div>
+
+                    <div class="player-col">
+                        <div class="player-col-title">BOWLER</div>
+                        <div class="player-row">
+                            <div class="p-name" id="bowler-name">Mohammad Amir</div>
+                        </div>
+                        <div class="bowler-grid" id="bowler-stats-grid">
+                            <div class="b-stat"><span class="b-label">O</span><span class="b-value" id="b-o">3.0</span></div>
+                            <div class="b-stat"><span class="b-label">M</span><span class="b-value" id="b-m">0</span></div>
+                            <div class="b-stat"><span class="b-label">R</span><span class="b-value" id="b-r">28</span></div>
+                            <div class="b-stat"><span class="b-label">W</span><span class="b-value wicket" id="b-w">1</span></div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="over-tracker">
+                    <span class="pill-label" style="letter-spacing: 3px; font-size: 11px;">THIS OVER</span>
+                    <div class="over-balls-row" id="balls-row">
+                        <div class="ball-pill run">1</div>
+                        <div class="ball-pill four">4</div>
+                        <div class="ball-pill">0</div>
+                        <div class="ball-pill wicket">W</div>
+                        <div class="ball-pill run">2</div>
+                        <div class="ball-empty ball-pill"></div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Commentary -->
+            <div class="commentary-card">
+                <div id="commentary-feed"></div>
+            </div>
+        </div>
+
+    </div>
+
+    <script>
+        /* --- CORE CONFIG & STATE --- */
+        let matchState = {
+            teamName: "NESTO STRIKERS",
+            runs: 187, wickets: 4, overs: 18, balls: 4,
+            striker: { name: "Rohit Sharma", runs: 82, balls: 54, fours: 8, sixes: 3 },
+            nonStriker: { name: "Virat Kohli", runs: 43, balls: 31, fours: 4, sixes: 1 },
+            bowler: { name: "Mohammad Amir", o: 3, m: 0, r: 28, w: 1 },
+            overBalls: [
+                { display: '1', type: 'run', runs: 1 },
+                { display: '4', type: 'boundary', runs: 4 },
+                { display: '0', type: 'dot', runs: 0 },
+                { display: 'W', type: 'wicket', runs: 0 },
+                { display: '2', type: 'run', runs: 2 }
+            ],
+            history: []
+        };
+
+        const canvas = document.getElementById('canvas-overlay');
+        const ctx = canvas.getContext('2d');
+        let particles = [];
+        let fireworks = [];
+
+        /* --- ACT 1: INTRO ANIMATION --- */
+        function triggerIntro() {
+            const tl = gsap.timeline();
+            tl.to("#logo-img", { scale: 1, opacity: 1, duration: 1, ease: "back.out(2)" })
+              .to("#tour-info", { y: 0, opacity: 1, duration: 0.8 }, "-=0.4")
+              .to("#main-card", { scale: 1, opacity: 1, duration: 1, ease: "power3.out" }, "-=0.6")
+              .from(".stat-pill", { x: 30, opacity: 0, stagger: 0.1, duration: 0.5 }, "-=0.5")
+              .from(".player-row", { y: 20, opacity: 0, stagger: 0.1, duration: 0.4 }, "-=0.3");
+              
+            // Start Stadium Ambience
+            gsap.to(".bg-video", { filter: "brightness(0.7) blur(0px)", duration: 2 });
+        }
+
+        /* --- ACT 2: SIMULATION ENGINE --- */
+        function initSimulation() {
+            setInterval(() => {
+                const rand = Math.random();
+                if (rand < 0.3) simulateBall(0); // Dot
+                else if (rand < 0.5) simulateBall(1); // 1 Run
+                else if (rand < 0.6) simulateBall(4); // 4
+                else if (rand < 0.65) simulateBall(6); // 6
+                else if (rand < 0.7) simulateBall('W'); // Wicket
+                else simulateBall(Math.floor(Math.random()*3));
+            }, 6000);
+        }
+
+        function simulateBall(event) {
+            const ball = { display: event, type: 'run', runs: parseInt(event) || 0 };
+            if (event === 'W') ball.type = 'wicket';
+            if (event === 4 || event === 6) ball.type = 'boundary';
+            
+            // Logic Updates
+            if (event === 'W') {
+                matchState.wickets++;
+                triggerWicket();
+            } else {
+                matchState.runs += ball.runs;
+                matchState.striker.runs += ball.runs;
+                matchState.striker.balls++;
+                if (ball.runs === 4) { matchState.striker.fours++; triggerFour(); }
+                if (ball.runs === 6) { matchState.striker.sixes++; triggerSix(); }
+                if (ball.runs === 1 || ball.runs === 3) swapStrike();
+            }
+
+            matchState.balls++;
+            if (matchState.balls >= 6) {
+                matchState.balls = 0;
+                matchState.overs++;
+                matchState.overBalls = [];
+            } else {
+                matchState.overBalls.push(ball);
+            }
+
+            updateUI();
+            addCommentary(ball);
+        }
+
+        /* --- ACT 3: COMPONENT UPDATES --- */
+        function updateUI() {
+            // Numbers
+            document.getElementById('runs-digit').innerText = matchState.runs;
+            document.getElementById('wickets-text').innerText = matchState.wickets;
+            document.getElementById('overs-text').innerText = `${matchState.overs}.${matchState.balls}`;
+            document.getElementById('crr-text').innerText = (matchState.runs / ((matchState.overs * 6 + matchState.balls)/6 || 1)).toFixed(2);
+
+            // Batsmen
+            document.getElementById('striker-name').innerText = matchState.striker.name;
+            document.getElementById('striker-runs').innerText = matchState.striker.runs;
+            document.getElementById('striker-balls').innerText = `(${matchState.striker.balls})`;
+            document.getElementById('striker-extras').innerText = `4s: ${matchState.striker.fours} | 6s: ${matchState.striker.sixes} | SR: ${(matchState.striker.runs / (matchState.striker.balls || 1) * 100).toFixed(2)}`;
+
+            document.getElementById('nonstriker-name').innerText = matchState.nonStriker.name;
+            document.getElementById('nonstriker-runs').innerText = matchState.nonStriker.runs;
+            document.getElementById('nonstriker-balls').innerText = `(${matchState.nonStriker.balls})`;
+
+            // Balls
+            const row = document.getElementById('balls-row');
+            row.innerHTML = '';
+            matchState.overBalls.forEach(b => {
+                const p = document.createElement('div');
+                p.className = `ball-pill ${getBallClass(b)}`;
+                p.innerText = b.display;
+                row.appendChild(p);
+            });
+            for(let i=0; i < (6 - matchState.overBalls.length); i++) {
+                const empty = document.createElement('div');
+                empty.className = 'ball-pill ball-empty';
+                row.appendChild(empty);
+            }
+        }
+
+        function getBallClass(b) {
+            if (b.type === 'wicket') return 'wicket';
+            if (b.runs === 4) return 'four';
+            if (b.runs === 6) return 'six';
+            if (b.runs > 0) return 'run';
+            return '';
+        }
+
+        function swapStrike() {
+            const temp = matchState.striker;
+            matchState.striker = matchState.nonStriker;
+            matchState.nonStriker = temp;
+            gsap.from("#striker-row", { x: -20, opacity: 0.5, duration: 0.4 });
+        }
+
+        /* --- ACT 4: THE CINEMA (GSAP + FX) --- */
+        function triggerFour() {
+            const hero = document.getElementById('hero-text');
+            hero.innerText = "FOUR!";
+            hero.className = "hero-text four";
+            
+            const tl = gsap.timeline();
+            tl.to(hero, { scale: 1.2, opacity: 1, duration: 0.4, ease: "elastic.out(1, 0.3)" })
+              .to(hero, { scale: 1.5, opacity: 0, duration: 0.4, delay: 0.8 });
+            
+            flashStadium(1.4, 0.6);
+            burstParticles('#F5A623');
+        }
+
+        function triggerSix() {
+            const hero = document.getElementById('hero-text');
+            hero.innerText = "SIX!";
+            hero.className = "hero-text six";
+            
+            const tl = gsap.timeline();
+            tl.to(hero, { scale: 1.5, opacity: 1, duration: 0.5, ease: "back.out(2)" })
+              .to(hero, { scale: 2, opacity: 0, duration: 0.3, delay: 1.2 });
+            
+            flashStadium(1.8, 0.8);
+            launchFireworks();
+        }
+
+        function triggerWicket() {
+            const card = document.getElementById('out-card');
+            document.getElementById('out-p-name').innerText = matchState.striker.name.toUpperCase();
+            document.getElementById('out-score').innerText = `${matchState.striker.runs} (${matchState.striker.balls})`;
+            document.getElementById('out-sr').innerText = (matchState.striker.runs / (matchState.striker.balls || 1) * 100).toFixed(1);
+
+            const tl = gsap.timeline();
+            tl.to(card, { top: "20%", duration: 0.6, ease: "back.out(1.4)" })
+              .to(card, { top: "-400px", opacity: 0, duration: 0.4, delay: 3 });
+            
+            gsap.to(".bg-video", { filter: "brightness(0.3) grayscale(0.5)", duration: 0.5 });
+            gsap.to(".bg-video", { filter: "brightness(0.7) grayscale(0)", duration: 1, delay: 3.5 });
+            
+            burstParticles('#FF2044', 50);
+            
+            // New Batsman Replacement
+            setTimeout(() => {
+                matchState.striker = { name: "Hardik Pandya", runs: 0, balls: 0, fours: 0, sixes: 0 };
+                updateUI();
+            }, 3500);
+        }
+
+        function flashStadium(bright, norm) {
+            gsap.to(".bg-video", { filter: `brightness(${bright})`, duration: 0.1 });
+            gsap.to(".bg-video", { filter: `brightness(${norm})`, duration: 0.8, delay: 0.1 });
+        }
+
+        /* --- ACT 6: LIVE SYNC (SOCKET.IO) --- */
+        const socket = io();
+        let lastHandledEventId = 0;
+
+        socket.on('connect', () => {
+            console.log('Connected to LIVE Match Feed');
+        });
+
+        socket.on('match-update', (state) => {
+            console.log('🎬 Broadcast Update:', state);
+            const inn = state.innings[state.currentInningsIdx];
+            if (!inn) return;
+
+            // Map server state to local matchState
+            matchState.runs = inn.totalRuns;
+            matchState.wickets = inn.totalWickets;
+            matchState.overs = inn.currentOver;
+            matchState.balls = inn.currentBall;
+            matchState.overBalls = inn.currentOverBalls;
+
+            // Map batsmen
+            if (inn.strikerId && inn.batsmen[inn.strikerId]) {
+                const s = inn.batsmen[inn.strikerId];
+                matchState.striker = {
+                    name: s.name,
+                    runs: s.runs,
+                    balls: s.balls,
+                    fours: s.fours,
+                    sixes: s.sixes
+                };
+            }
+            if (inn.nonStrikerId && inn.batsmen[inn.nonStrikerId]) {
+                const ns = inn.batsmen[inn.nonStrikerId];
+                matchState.nonStriker = {
+                    name: ns.name,
+                    runs: ns.runs,
+                    balls: ns.balls
+                };
+            }
+
+            // Map team name
+            const teamHeader = document.getElementById('tour-info').querySelector('.fest-label');
+            teamHeader.innerText = inn.battingTeam.toUpperCase();
+
+            updateUI();
+
+            // Handle Events
+            if (state.lastEventId > lastHandledEventId) {
+                lastHandledEventId = state.lastEventId;
+                if (state.lastEvent === 'four') triggerFour();
+                else if (state.lastEvent === 'six') triggerSix();
+                else if (state.lastEvent === 'wicket') triggerWicket();
+            }
+        });
+
+        function initCanvas() {
+            canvas.width = window.innerWidth;
+            canvas.height = window.innerHeight;
+            window.addEventListener('resize', () => {
+                canvas.width = window.innerWidth;
+                canvas.height = window.innerHeight;
+            });
+            requestAnimationFrame(renderLoop);
+        }
+
+        function burstParticles(color, count = 20) {
+            for(let i=0; i<count; i++) {
+                particles.push({
+                    x: canvas.width/2, y: canvas.height/2,
+                    vx: (Math.random()-0.5)*15, vy: (Math.random()-0.5)*15,
+                    life: 1, size: Math.random()*6+2, color: color
+                });
+            }
+        }
+
+        function launchFireworks() {
+            for(let i=0; i<5; i++) {
+                setTimeout(() => {
+                    const x = (canvas.width / 6) * (i + 1);
+                    burstParticles('#A855F7', 30);
+                }, i * 200);
+            }
+        }
+
+        function renderLoop() {
+            ctx.clearRect(0,0, canvas.width, canvas.height);
+            
+            particles.forEach((p, i) => {
+                p.x += p.vx; p.y += p.vy;
+                p.vy += 0.2; // Gravity
+                p.life -= 0.02;
+                if(p.life <= 0) particles.splice(i, 1);
+                
+                ctx.globalAlpha = p.life;
+                ctx.fillStyle = p.color;
+                ctx.beginPath();
+                ctx.arc(p.x, p.y, p.size, 0, Math.PI*2);
+                ctx.fill();
+            });
+            
+            requestAnimationFrame(renderLoop);
+        }
+
+        /* --- ACT 6: COMMENTARY --- */
+        function addCommentary(event) {
+            const feed = document.getElementById('commentary-feed');
+            const item = document.createElement('div');
+            item.className = 'comm-item';
+            
+            const highlight = event.runs === 4 ? 'highlight-4' : (event.runs === 6 ? 'highlight-6' : (event.type === 'wicket' ? 'highlight-W' : ''));
+            const text = event.type === 'wicket' ? `<b>WICKET!</b> ${matchState.striker.name} departs!` : `${matchState.striker.name} hits a ${event.runs === 4 ? '<span class="highlight-4">BOUNDARY (4)</span>' : (event.runs === 6 ? '<span class="highlight-6">MAXIMUM (6)</span>' : event.runs)} to long on.`;
+            
+            item.innerHTML = `
+                <div class="comm-ball">${matchState.overs}.${matchState.balls}</div>
+                <div class="comm-text">${text}</div>
+            `;
+            feed.prepend(item);
+            if(feed.children.length > 5) feed.lastChild.remove();
+        }
+
+        /* --- START PROGRAM --- */
+        window.addEventListener('load', () => {
+            initCanvas();
+            triggerIntro();
+            setTimeout(initSimulation, 3000);
+            updateUI();
+        });
+
+    </script>
+</body>
+</html>
